@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-st.set_page_config(page_title="Basketball Tagging App", layout="wide")
+st.set_page_config(page_title="StFx Basketball Tagger", layout="wide")
 
 # --- Initialize Session State ---
 if "plays" not in st.session_state:
@@ -25,7 +25,7 @@ st.sidebar.subheader("Playbook")
 
 # Add new play
 new_play = st.sidebar.text_input("Add New Play")
-if st.sidebar.button("ADD NEW PLAY") and new_play:
+if st.sidebar.button("ADD") and new_play:
     if new_play not in st.session_state.plays:
         st.session_state.plays.append(new_play)
     else:
@@ -33,7 +33,7 @@ if st.sidebar.button("ADD NEW PLAY") and new_play:
     st.sidebar.text_input("Add New Play", value="", key="reset_play_input")  # reset input field
 
 # --- Main Area ---
-st.title("🏀 Basketball Tagging Application")
+st.title("🏀 StFx Basketball Tagger")
 
 if not ready_to_tag:
     st.warning("Please select Opponent, Game Date, and Quarter in the sidebar before tagging plays.")
