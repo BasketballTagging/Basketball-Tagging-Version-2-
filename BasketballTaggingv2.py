@@ -1,110 +1,96 @@
-
 import streamlit as st
 import pandas as pd
-from io import StringIO
+from datetime import date
 
-# --- SESSION STATE INITIALIZATION ---
-if "play_log" not in st.session_state:
-    st.session_state.play_log = pd.DataFrame(columns=["Quarter", "Play", "Outcome"])
+st.set_page_config(page_title="Basketball Tagging App", layout="wide")
 
-if "play_metrics" not in st.session_state:
-    st.session_state.play_metrics = pd.DataFrame(columns=[
-        "Play", "Attempts", "Points", "Points per Possession", "Frequency", "Success Rate"
-    ])
+# --- Initialize Session State ---
+if "plays" not in st.session_state:
+    st.session_state.plays = []
 
+if "data" not in st.session_state:
+    st.session_state.data = []
 
-# --- SIDEBAR INPUTS ---
-st.sidebar.header("Game Info")
+# --- Sidebar Inputs ---
+st.sidebar.header("Game Setup")
 opponent = st.sidebar.text_input("Opponent")
-game_date = st.sidebar.date_input("Game Date")
-quarter = st.sidebar.selectbox("Quarter", ["Q1", "Q2", "Q3", "Q4"])
+game_date = st.sidebar.date_input("Game Date", value=date.today())
+quarter = st.sidebar.selectbox("Quarter", ["", "1", "2", "3", "4", "OT"])
 
-# Define play types
-play_types = ["Pick & Roll", "Isolation", "Post Up", "Transition", "Spot Up"]
+# Only allow tagging if all game info is filled
+ready_to_tag = opponent and game_date and quarter
 
-st.sidebar.subheader("Select a Play")
+st.sidebar.markdown("---")
+st.sidebar.subheader("Playbook")
 
-# --- OUTCOME HANDLER ---
-def add_play(play, outcome):
-    # Update Play Log
-    st.session_state.play_log = pd.concat([
-        st.session_state.play_log,
-        pd.DataFrame([{"Quarter": quarter, "Play": play, "Outcome": outcome}])
-    ], ignore_index=True)
+# Add new play
+new_play = st.sidebar.text_input("Add New Play")
+if st.sidebar.button("ADD NEW PLAY") and new_play:
+    if new_play not in st.session_state.plays:
+        st.session_state.plays.append(new_play)
+    else:
+        st.sidebar.warning("Play already exists!")
+    st.sidebar.text_input("Add New Play", value="", key="reset_play_input")  # reset input field
 
-    # Update Metrics Table
-    metrics = st.session_state.play_metrics.set_index("Play")
+# --- Main Area ---
+st.title("🏀 Basketball Tagging Application")
 
-    # Calculate points
-    points_map = {
-        "Made 2": 2,
-        "Made 3": 3,
-        "Missed 2": 0,
-        "Missed 3": 0,
-        "Foul": 0
-    }
-    points = points_map[outcome]
+if not ready_to_tag:
+    st.warning("Please select Opponent, Game Date, and Quarter in the sidebar before tagging plays.")
+else:
+    st.write(f"**Game:** vs {opponent} | Date: {game_date} | Quarter: {quarter}")
 
-    # Update or create play row
-    if play not in metrics.index:
-        metrics.loc[play] = [0, 0, 0, 0, 0]  # placeholder row
+    # Show play buttons
+    for play in st.session_state.plays:
+        if st.button(play):
+            st.session_state.selected_play = play
 
-    metrics.loc[play, "Attempts"] += 1
-    metrics.loc[play, "Points"] += points
-    metrics.loc[play, "Points per Possession"] = metrics.loc[play, "Points"] / metrics.loc[play, "Attempts"]
-    metrics.loc[play, "Frequency"] = metrics.loc[play, "Attempts"] / st.session_state.play_log.shape[0]
-    metrics.loc[play, "Success Rate"] = (
-        len(st.session_state.play_log[(st.session_state.play_log["Play"] == play) &
-                                      (st.session_state.play_log["Outcome"].str.contains("Made"))])
-        / metrics.loc[play, "Attempts"]
-    )
+    # If a play is selected, show tagging options
+    if "selected_play" in st.session_state:
+        st.subheader(f"Tagging: {st.session_state.selected_play}")
+        col1, col2, col3, col4, col5 = st.columns(5)
 
-    # Save back
-    st.session_state.play_metrics = metrics.reset_index()
+        if col1.button("Made 2"):
+            st.session_state.data.append([st.session_state.selected_play, "Made 2", 2])
+        if col2.button("Made 3"):
+            st.session_state.data.append([st.session_state.selected_play, "Made 3", 3])
+        if col3.button("Missed 2"):
+            st.session_state.data.append([st.session_state.selected_play, "Missed 2", 0])
+        if col4.button("Missed 3"):
+            st.session_state.data.append([st.session_state.selected_play, "Missed 3", 0])
+        if col5.button("Foul"):
+            st.session_state.data.append([st.session_state.selected_play, "Foul", 0])
 
+    # --- Build Metrics Table ---
+    if st.session_state.data:
+        df = pd.DataFrame(st.session_state.data, columns=["Play", "Result", "Points"])
 
-# --- PLAY BUTTONS ---
-for play in play_types:
-    if st.sidebar.button(play):
-        outcome = st.radio("Select Outcome for " + play, 
-                           ["Made 2", "Made 3", "Missed 2", "Missed 3", "Foul"], key=play)
-        if st.button(f"Confirm {play} - {outcome}"):
-            add_play(play, outcome)
-            st.experimental_rerun()
+        metrics = df.groupby("Play").agg(
+            Attempts=("Result", "count"),
+            Points=("Points", "sum"),
+        ).reset_index()
 
+        metrics["PPP"] = metrics["Points"] / metrics["Attempts"]
+        total_attempts = metrics["Attempts"].sum()
+        metrics["Frequency"] = metrics["Attempts"] / total_attempts
+        # Success rate = FG made / FG attempts (exclude fouls)
+        success = df[df["Result"].isin(["Made 2", "Made 3"])].groupby("Play").size()
+        attempts_no_fouls = df[df["Result"].isin(["Made 2", "Made 3", "Missed 2", "Missed 3"])].groupby("Play").size()
+        metrics["Success Rate"] = metrics["Play"].map(lambda x: success.get(x, 0) / attempts_no_fouls.get(x, 1))
 
-# --- DISPLAY TABLES ---
-st.title("🏀 Basketball Tagging App")
+        st.subheader("📊 Per Play Metrics")
+        st.dataframe(metrics.style.format({
+            "PPP": "{:.2f}",
+            "Frequency": "{:.1%}",
+            "Success Rate": "{:.1%}"
+        }))
 
-if opponent and game_date:
-    st.subheader(f"Game vs {opponent} on {game_date}")
-
-st.markdown("### Table 1: Play Log")
-st.dataframe(st.session_state.play_log)
-
-# Export Play Log
-if not st.session_state.play_log.empty:
-    csv_log = st.session_state.play_log.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download Play Log (CSV)",
-        data=csv_log,
-        file_name=f"play_log_{opponent}_{game_date}.csv",
-        mime="text/csv"
-    )
-
-st.markdown("### Table 2: Per Play Metrics")
-st.dataframe(st.session_state.play_metrics.style.format({
-    "Points per Possession": "{:.2f}",
-    "Frequency": "{:.2%}",
-    "Success Rate": "{:.2%}"
-}))
-
-# Export Metrics
-if not st.session_state.play_metrics.empty:
-    csv_metrics = st.session_state.play_metrics.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download Per Play Metrics (CSV)",
-        data=csv_metrics,
-        file_name=f"play_metrics_{opponent}_{game_date}.csv",
-        mime="text/csv"
-    )
+        # --- Export to CSV ---
+        csv = metrics.to_csv(index=False).encode("utf-8")
+        filename = f"{opponent}_{game_date}_Q{quarter}_metrics.csv"
+        st.download_button(
+            label="📥 Download Metrics as CSV",
+            data=csv,
+            file_name=filename,
+            mime="text/csv",
+        )
