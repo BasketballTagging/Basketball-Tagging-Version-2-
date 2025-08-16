@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
+import altair as alt
 
 st.set_page_config(page_title="StFx MBB Tagger (Streamlit)", layout="wide")
 
@@ -142,10 +143,55 @@ if counts:
     st.dataframe(df_counts, use_container_width=True, hide_index=True)
 
     # ---------- Analytics Chart ----------
-    st.subheader("Analytics Chart")
-    pivot = df_counts.pivot_table(index="Tag", columns=["Quarter", "Result"], values="Total").fillna(0)
-    pivot.columns = [f"{q}_{r}" for q, r in pivot.columns]  # flatten MultiIndex
-    st.bar_chart(pivot)
+    st.subheader("Analytics Chart (Counts)")
+    pivot = df_counts.pivot_table(
+        index=["Tag", "Quarter"],
+        columns="Result",
+        values="Total"
+    ).fillna(0).reset_index()
+
+    df_long = pivot.melt(
+        id_vars=["Tag", "Quarter"],
+        var_name="Result",
+        value_name="Total"
+    )
+
+    chart = (
+        alt.Chart(df_long)
+        .mark_bar()
+        .encode(
+            x=alt.X("Tag:N", title="Tag"),
+            y=alt.Y("Total:Q", title="Total"),
+            color=alt.Color("Result:N", legend=alt.Legend(title="Result")),
+            column=alt.Column("Quarter:N", title="Quarter")
+        )
+        .properties(width=150, height=300)
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+    # ---------- Success Rate Chart ----------
+    st.subheader("Analytics Chart (Success %)")
+    # Compute attempts/makes
+    df_success = df_counts.copy()
+    df_success["Makes"] = df_success["Result"].apply(lambda r: 1 if "Made" in r else 0) * df_success["Total"]
+    df_success["Attempts"] = df_success["Result"].apply(lambda r: 1 if "Made" in r or "Missed" in r else 0) * df_success["Total"]
+
+    grouped = df_success.groupby(["Tag", "Quarter"]).sum().reset_index()
+    grouped["Success %"] = (grouped["Makes"] / grouped["Attempts"]).fillna(0) * 100
+
+    chart2 = (
+        alt.Chart(grouped)
+        .mark_bar()
+        .encode(
+            x=alt.X("Tag:N", title="Tag"),
+            y=alt.Y("Success %:Q", title="Success %"),
+            color=alt.Color("Quarter:N", legend=alt.Legend(title="Quarter")),
+            column=alt.Column("Quarter:N", title="Quarter")
+        )
+        .properties(width=150, height=300)
+    )
+    st.altair_chart(chart2, use_container_width=True)
+
 else:
     st.write("No tags yet.")
 
